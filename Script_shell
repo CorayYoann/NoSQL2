@@ -1,0 +1,38 @@
+sudo apt-get install -y mongodb-org
+sudo apt-get install python
+
+wget -P ~/station https://data.cityofnewyork.us/api/views/he7q-3hwy/rows.csv
+wget -P ~/bike_roads https://data.cityofnewyork.us/api/views/cc5c-sm6z/rows.csv
+
+python change.py
+
+mongoimport -d mydb -c bike --type csv --file bike_roads.csv --headerline
+mongoimport -d mydb -c metro --type csv --file sub_entrance.csv --headerline
+
+service mongod start
+
+mongo --host 127.0.0.1 --port 27017
+use mydb
+db.bike.aggregate([   { $group: { _id : "$Qualite",total :{$sum:1}}}  ])
+
+var stationMetro = db.metro.find();
+while(stationMetro.hasNext()){
+	var bikeroads = db.bike.find();
+	var station = stationMetro.next();
+	var score=station.Nb_corr;
+	while(bikeroads.hasNext()){
+		var route = bikeroads.next();
+		var distance = (route.Longitude-station.Longitude)*(route.Longitude-station.Longitude)+(route.Lattitude-station.Lattitude)*(route.Lattitude-station.Lattitude);
+		if(distance<0.001){
+			score=distance+score;
+			if(route.Qualite == "Greenway"){
+				score=score+0.5
+			}
+		}
+
+	}
+	db.metro.update({_id:station._id},{Street:station.Street, Longitude:station.Longitude,
+	Lattitude:station.Lattitude,Nb_corr : station.Nb_corr,Score:score})
+}
+
+db.metro.find().sort({Score:-1}).limit(5)
